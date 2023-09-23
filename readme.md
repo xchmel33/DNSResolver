@@ -1,6 +1,9 @@
 # 📎DNS Resolver
 
 This tool sends DNS queries to specified servers and analyzes the response.
+### 🐈‍⬛ Version control:
+https://github.com/xchmel33/DNSResolver
+
 ### 📝 Author: 
 Lukas Chmelo
 
