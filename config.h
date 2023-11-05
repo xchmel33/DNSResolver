@@ -5,11 +5,13 @@
 #ifndef DNSRESOLVER_CONFIG_H
 #define DNSRESOLVER_CONFIG_H
 
-#include <iostream>
-#include <cstring>
-#include <vector>
-#include <unistd.h>
-using namespace std;
+#include "helpers.h"
+
+enum QueryType{
+    A = 1,
+    PTR = 12,
+    AAAA = 28
+};
 
 /**
  * \struct Config
@@ -17,8 +19,7 @@ using namespace std;
  */
 struct Config {
     bool recursion = false;
-    bool reverseQuery = false;
-    bool typeAAAA = false;
+    QueryType queryType = A;
     string serverIP;
     uint16_t port = 53;
     string address;

@@ -10,10 +10,10 @@ Config parseArguments(int argc, char* argv[]) {
                 config.recursion = true;
                 break;
             case 'x':
-                config.reverseQuery = true;
+                config.queryType = PTR;
                 break;
             case '6':
-                config.typeAAAA = true;
+                config.queryType = AAAA;
                 break;
             case 's':
                 config.serverIP = optarg;
@@ -37,6 +37,10 @@ Config parseArguments(int argc, char* argv[]) {
     if (config.serverIP.empty()) {
         cerr << "DNS server IP is required." << endl;
         exit(EXIT_FAILURE);
+    }
+
+    if (config.queryType == PTR) {
+        config.address = reverseIP(config.address);
     }
 
     return config;

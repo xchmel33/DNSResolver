@@ -1,40 +1,45 @@
-#include "config.h"
 #include "dns.h"
 
 int main(int argc, char* argv[]) {
     // Parse arguments to get server IP, port, and other options
     Config config = parseArguments(argc, argv);
 
-    // Create a UDP socket for DNS communication
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) {
-        cerr << "Failed to create socket." << endl;
-        return 1;
+    if (config.address.empty()){
+        cerr << "Address is missing or invalid." << endl;
+        return -1;
     }
 
-    // Define the address of the DNS server for communication
-    sockaddr_in serverAddr = {};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(config.port);  // Use port from arguments or default to 53
-    serverAddr.sin_addr.s_addr = inet_addr(config.serverIP.c_str());  // Use server IP from arguments
+    // Send the DNS query
+    int sock = createSocket();
+    ssize_t sentBytes = sendDNSQuery(sock, config);
+    if (sentBytes == -1) {
+        cerr << "Failed to send DNS query." << endl;
+        close(sock);
+        return -2;
+    }
 
-    // Generate a DNS query based on the given domain and recursion option
-    auto query = createQuery(config.address, config.recursion);  // Use address from arguments
+    // Receive DNS response
+    vector<uint8_t> response = receiveDNSResponse(sock, 5);
+    if (response.empty()) {
+        cerr << "Failed to receive a valid DNS response or timed out." << endl;
+        // Handle error or timeout accordingly
+        return -3;
+    }
 
-    // Send the DNS query to the server using the socket
-    sendto(sock, query.data(), query.size(), 0, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
-    cout << "Sent DNS query " << query.data() << endl;
-
-    // Prepare a buffer to receive the DNS response and retrieve it
-    vector<uint8_t> response(512);
-    recv(sock, response.data(), response.size(), 0);
-    cout << "Received DNS response " << response.data() << endl;
+    // Analyze the response and handle recursion if necessary
+    DNSResponse* dnsResponse = handleRecursion(response, config, sock);
+    if (dnsResponse == nullptr) {
+        cerr << "Failed to handle recursion." << endl;
+        return -4;
+    }
 
     // Close the socket after communication
     close(sock);
 
     // Analyze the received DNS response and print relevant details
-    analyzeResponse(response);
+    printResponse(*dnsResponse);
+
+    delete dnsResponse;
 
     return 0;
 }
