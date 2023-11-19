@@ -30,7 +30,7 @@ vector<uint8_t> createQuery(const Config& config) {
     }
     buffer.push_back(0);
 
-    Question q = {};
+    DNSQuestion q = {};
     q.qtype = htons(config.queryType);
     q.qclass = htons(1); // IN class
 
@@ -40,17 +40,12 @@ vector<uint8_t> createQuery(const Config& config) {
     // Add the query type and class after the domain name
     buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&q.qtype), reinterpret_cast<uint8_t*>(&q.qtype) + 4); // sizeof(qtype) + sizeof(qclass) = 4
 
-    //    cout << "query buffer: ";
-    //    for (uint8_t byte : buffer) {
-    //        cout << static_cast<int>(byte) << " ";
-    //    }
-    //    cout << endl;
-
     return buffer;
 }
 
-int createSocket() {;
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+int createSocket(bool ipv6) {
+    int sock;
+    sock = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
         return -1;
     }
@@ -83,13 +78,13 @@ vector<string> getDefaultNameServers() {
     return nameServers;
 }
 
-string resolveDNSServerName(const string& serverName) {
+string resolveDNSServerName(const string& serverName, bool trace) {
 
     // Get the system's default nameservers
     auto nameServers = getDefaultNameServers();
     if (nameServers.empty()) {
-        cerr << "No DNS servers found in /etc/resolv.conf" << endl;
-        return "";
+        cout << "Using gethostbyname() to resolve " << serverName << endl;
+        return gethostbyname(serverName.c_str())->h_name;
     }
 
     // Use the first nameserver from the list for the query
@@ -125,6 +120,9 @@ string resolveDNSServerName(const string& serverName) {
 
     // Parse the response to get the IP address
     auto dnsResponse = analyzeResponse(response);
+    if (trace) {
+        printTrace(dnsResponse, config.serverIP);
+    }
     if (!dnsResponse.answers.empty()) {
         return dnsResponse.answers[0].rdata;
     }
@@ -134,28 +132,46 @@ string resolveDNSServerName(const string& serverName) {
 
 ssize_t sendDNSQuery(int sock, const Config& config) {
 
+    // handle IPv6
+    if (isValidIPv6(config.serverIP)) {
+        cout << "Sending to IPv6 address: " << config.serverIP << endl;
+        close(sock);
+        sock = createSocket(true);
+        sockaddr_in6 serverAddr6 = {};
+        serverAddr6.sin6_family = AF_INET6;
+        serverAddr6.sin6_port = htons(config.port);
+        inet_pton(AF_INET6, config.serverIP.c_str(), &serverAddr6.sin6_addr);
+
+        // Generate a DNS query
+        auto query = createQuery(config);
+
+        // Send the DNS query using IPv6
+        ssize_t sentBytes = sendto(sock, query.data(), query.size(), 0,
+                                   reinterpret_cast<sockaddr*>(&serverAddr6), sizeof(serverAddr6));
+
+        return sentBytes;
+    }
+
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(config.port);  // Use port from arguments or default to 53
 
-    if (isValidIP(config.serverIP)) {
-        // If serverIP is a valid IP, use it directly
-        serverAddr.sin_addr.s_addr = inet_addr(config.serverIP.c_str());
-    } else {
-        // If serverIP is a domain, resolve it to an IP address
-        string record = resolveDNSServerName(config.serverIP);
+    // handle domain names instead of IP addresses
+    if (!isValidIPv4(config.serverIP)) {
+        string record = resolveDNSServerName(config.serverIP, config.trace);
         if(record.empty()) {
             cerr << "DNS server name resolution failed" << endl;
             close(sock);
             return -1;
         }
-
         // Convert the IP address from string to a network address structure
         if (inet_pton(AF_INET, record.c_str(), &(serverAddr.sin_addr)) <= 0) {
             cerr << "Invalid IP address format" << endl;
             close(sock);
             return -1;
         }
+    } else {
+        serverAddr.sin_addr.s_addr = inet_addr(config.serverIP.c_str());
     }
 
     // Generate a DNS query based on the given domain and recursion option
@@ -164,7 +180,7 @@ ssize_t sendDNSQuery(int sock, const Config& config) {
     // Send the DNS query to the server using the socket
     ssize_t sentBytes = sendto(sock, query.data(), query.size(), 0,
                                reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
-    cout << "Sent DNS query to " << config.serverIP << ":" << config.port << endl;
+    // cout << "Sent DNS query to " << config.serverIP << ":" << config.port << endl;
 
     return sentBytes;
 }
@@ -189,7 +205,7 @@ vector<uint8_t> receiveDNSResponse(int sock, int timeoutSec) {
         perror("select");
         response.clear(); // Clear the response to indicate an error
     } else if (ret == 0) {
-        cout << "No response received within the timeout period" << endl;
+        // cout << "No response received within the timeout period" << endl;
         response.clear(); // Clear the response to indicate a timeout
     } else {
         // Receive the response from the DNS server
@@ -206,8 +222,8 @@ vector<uint8_t> receiveDNSResponse(int sock, int timeoutSec) {
     return response;
 }
 
-Question parseQuestionSection(const vector<uint8_t>& response, unsigned int& offset) {
-    Question question;
+DNSQuestion parseDNSQuestionSection(const vector<uint8_t>& response, unsigned int& offset) {
+    DNSQuestion question;
     // Parse QNAME
     while (response[offset] != 0) {  // The domain name is ended with 0
         unsigned int label_length = response[offset];
@@ -219,6 +235,7 @@ Question parseQuestionSection(const vector<uint8_t>& response, unsigned int& off
     }
     question.qname.push_back(0); // Add the 0 byte at the end of QNAME
     offset++;  // Skip the 0 byte at the end of QNAME
+    // cout << "Parsed QNAME: " << qnameToString(question.qname) << endl;
 
     // Parse QTYPE
     memcpy(&question.qtype, &response[offset], 2);
@@ -233,8 +250,8 @@ Question parseQuestionSection(const vector<uint8_t>& response, unsigned int& off
     return question;
 }
 
-DNSAnswer* parseDNSAnswer(const vector<uint8_t>& response, unsigned int& offset) {
-    DNSAnswer* answer = new DNSAnswer;
+DNSRecord* parseDNSAnswer(const vector<uint8_t>& response, unsigned int& offset) {
+    auto* answer = new DNSRecord;
 
     answer->name = extractName(response, offset);
 
@@ -254,6 +271,8 @@ DNSAnswer* parseDNSAnswer(const vector<uint8_t>& response, unsigned int& offset)
     memcpy(&answer->rdlength, &response[offset], 2);
     answer->rdlength = ntohs(answer->rdlength);
     offset += 2;
+
+//    // cout << "Received record type " << answer->type << endl;
 
     // A Record
     if (answer->type == 1) {
@@ -279,9 +298,62 @@ DNSAnswer* parseDNSAnswer(const vector<uint8_t>& response, unsigned int& offset)
         answer->rdata = extractName(response, offset);
     }
 
+    // SOA Record
+    if (answer->type == 6) {
+        stringstream ss;
+
+        // Primary name server
+        string primaryNS = extractName(response, offset);
+        ss << primaryNS << " ";
+
+        // Responsible authority's mailbox
+        string respAuthorityMailbox = extractName(response, offset);
+        ss << respAuthorityMailbox << " ";
+
+        // Now parse the fixed length fields: serial, refresh, retry, expire, minimum TTL
+        uint32_t serial, refresh, retry, expire, minimum;
+        memcpy(&serial, &response[offset], 4);
+        serial = ntohl(serial);
+        offset += 4;
+
+        memcpy(&refresh, &response[offset], 4);
+        refresh = ntohl(refresh);
+        offset += 4;
+
+        memcpy(&retry, &response[offset], 4);
+        retry = ntohl(retry);
+        offset += 4;
+
+        memcpy(&expire, &response[offset], 4);
+        expire = ntohl(expire);
+        offset += 4;
+
+        memcpy(&minimum, &response[offset], 4);
+        minimum = ntohl(minimum);
+        offset += 4;
+
+        // Append the values to the stringstream
+        ss << serial << " " << refresh << " " << retry << " " << expire << " " << minimum;
+
+        // Set the rdata field of the answer struct to the contents of the stringstream
+        answer->rdata = ss.str();
+    }
+
     // PTR Record
     if (answer->type == 12) {
         answer->rdata = extractName(response, offset);
+    }
+
+    // AAAA Record
+    if (answer->type == 28) {
+
+        // Make sure rdlength is 16 for an AAAA record
+        if (answer->rdlength == 16) {
+            answer->rdata = formatIPv6(response, offset);
+            offset += 16;
+        } else {
+            throw runtime_error("Invalid rdlength for AAAA record");
+        }
     }
 
     return answer;
@@ -298,7 +370,7 @@ string extractName(const vector<uint8_t>& packet, unsigned int& offset) {
             throw runtime_error("Possible malformed packet - processing name takes too long");
         }
         if(offset >= packet.size()) {
-            throw runtime_error("Offset out of bounds while processing name");
+            offset = jumpOffset;
         }
 
         uint8_t length = packet[offset];
@@ -314,24 +386,36 @@ string extractName(const vector<uint8_t>& packet, unsigned int& offset) {
             offset = ((length & 0x3F) << 8) | packet[offset + 1];
             continue;
         }
-        if (offset + length >= packet.size()) {
-            throw runtime_error("Offset + length out of bounds while processing name");
+
+        // Check for reversed IPv6 address format
+        if (length == 1) {
+            // cout << "Reversed IPv6 address format detected" << endl;
+            // Process each hexadecimal digit
+            char hexDigit = static_cast<char>(packet[offset + 1]);
+            name.push_back(hexDigit);
+            name.push_back('.');
+        } else {
+            // Regular domain name processing
+            if (offset + length >= packet.size()) {
+                throw runtime_error("Offset + length out of bounds while processing name");
+            }
+            name.append(packet.begin() + offset + 1, packet.begin() + offset + 1 + length);
+            name.push_back('.');
         }
-        name.append(packet.begin() + offset + 1, packet.begin() + offset + 1 + length);
-        name.push_back('.');
         offset += (length + 1);
     }
-    if (name.back() == '.') name.pop_back();
+    if (name.back() != '.') name.push_back('.');
     offset = jumped ? jumpOffset : offset;
+    // cout << "Extracted name: " << name << endl;
     return name;
 }
 
-DNSResponse analyzeResponse(const vector<uint8_t>& response) {
-    // Declare and initialize the DNSResponse object
-    DNSResponse dnsResponse;
+DNSPacket analyzeResponse(const vector<uint8_t>& response) {
+    // Declare and initialize the DNSPacket object
+    DNSPacket dnsResponse;
 
     // Parse the header
-    DNSHeader* header = (DNSHeader*)response.data();
+    auto* header = (DNSHeader*)response.data();
     dnsResponse.header.id = ntohs(header->id);
     dnsResponse.header.flags = ntohs(header->flags);
     dnsResponse.header.qd_count = ntohs(header->qd_count);
@@ -339,50 +423,50 @@ DNSResponse analyzeResponse(const vector<uint8_t>& response) {
     dnsResponse.header.ns_count = ntohs(header->ns_count);
     dnsResponse.header.ar_count = ntohs(header->ar_count);
 
+    // Check if RCODE is 5 (Refused)
+    if ((dnsResponse.header.flags & 0x000F) == 5) {
+        return dnsResponse;
+    }
+
     // Offset to keep track of our position in the response
     unsigned int offset = sizeof(DNSHeader);
 
     // Parse the question section
     for (int i = 0; i < dnsResponse.header.qd_count; ++i) {
-        Question question = parseQuestionSection(response, offset);
+        DNSQuestion question = parseDNSQuestionSection(response, offset);
         dnsResponse.questions.push_back(question);
     }
 
+
     // Parse the answer section
     for (int i = 0; i < dnsResponse.header.an_count; ++i) {
-        DNSAnswer* answer = parseDNSAnswer(response, offset);
+        DNSRecord* answer = parseDNSAnswer(response, offset);
         dnsResponse.answers.push_back(*answer);
         delete answer; // Don't forget to free the allocated memory!
     }
 
     // Parse the authority section
     for (int i = 0; i < dnsResponse.header.ns_count; ++i) {
-        DNSAnswer* authority = parseDNSAnswer(response, offset);
+        DNSRecord* authority = parseDNSAnswer(response, offset);
         dnsResponse.authority.push_back(*authority);
         delete authority; // Free the allocated memory
     }
 
     // Parse the additional section
     for (int i = 0; i < dnsResponse.header.ar_count; ++i) {
-        DNSAnswer* additional = parseDNSAnswer(response, offset);
+        DNSRecord* additional = parseDNSAnswer(response, offset);
         dnsResponse.additional.push_back(*additional);
         delete additional; // Free the allocated memory
     }
 
-    // Return the filled DNSResponse structure
+    // Return the filled DNSPacket structure
     return dnsResponse;
 }
 
-void mergeResponses(DNSResponse* finalResponse, const DNSResponse* newResponse) {
+void mergeResponses(DNSPacket* finalResponse, const DNSPacket* newResponse) {
     if (!finalResponse || !newResponse) {
         return; // If either is null, we cannot merge them.
     }
-
-//    cout << "Merging responses:\nfinal:" << endl;
-//    printResponse(*finalResponse);
-//    cout << "new:" << endl;
-//    printResponse(*newResponse);
-//    cout << endl << endl;
 
     // Append answers from newResponse to finalResponse
     finalResponse->answers.insert(
@@ -410,94 +494,100 @@ void mergeResponses(DNSResponse* finalResponse, const DNSResponse* newResponse) 
     finalResponse->header.an_count += newResponse->header.an_count;
     finalResponse->header.ns_count += newResponse->header.ns_count;
     finalResponse->header.ar_count += newResponse->header.ar_count;
+
+    // Free the memory allocated for newResponse
+    delete newResponse;
 }
 
-DNSResponse* handleRecursion(const vector<uint8_t>& response, Config& config, int sock, DNSResponse* finalResponse) {
+bool checkTargetDNSResponse(const DNSPacket& response, const Config& config) {
+    for (const auto &answer : response.answers) {
+        if (answer.type == config.queryType) {
+            return true;
+        }
+    }
+    return false;
+}
 
-    auto* dnsResponse = new DNSResponse(analyzeResponse(response));
+DNSPacket* handleRecursion(const vector<uint8_t>& response, Config& config, int sock) {
 
-    if (!config.recursion || dnsResponse->header.flags & (1 << RA_FLAG_POSITION)) {
-        // If the response already includes IP addresses in the additional section, use them
-        if (!dnsResponse->additional.empty()) {
-            for (const auto &additional: dnsResponse->additional) {
-                if (additional.type == 1) { // A record
-                    config.serverIP = dnsResponse->additional[0].rdata;
-                    ssize_t sentBytes = sendDNSQuery(sock, config);
-                    if (sentBytes == -1) {
-                        continue;
-                    }
-                    vector<uint8_t> nextResponse = receiveDNSResponse(sock, 5);
-                    if (response.empty()) {
-                        continue;
-                    }
-                    // todo: think and decide if this needs to be here
-                    if (finalResponse) {
-                        mergeResponses(finalResponse, dnsResponse);
-                        delete dnsResponse; // as we have merged the responses, we can delete the temporary one
-                        dnsResponse = finalResponse; // point to the merged response
-                    }
-                    // Recursively handle the next response, pass finalResponse to accumulate answers
-                    return handleRecursion(nextResponse, config, sock, dnsResponse);
+    auto* dnsResponse = new DNSPacket(analyzeResponse(response));
+
+    // check if query was refused
+    if ((dnsResponse->header.flags & 0x000F) == 5) {
+        cerr << "Query was refused by server " << config.serverIP << "!" << endl;
+        return nullptr;
+    }
+
+    // check if answer section contains desired record
+    if (checkTargetDNSResponse(*dnsResponse, config)) {
+        return dnsResponse;
+    }
+
+    // check if recursion handling by DNS client is needed
+    if (config.recursion && dnsResponse->header.flags & (1 << RA_FLAG_POSITION)) {
+        return dnsResponse;
+    }
+
+    // prepare variables for recursion
+    DNSPacket* nextResponse = nullptr;
+
+    // If the response already includes IP addresses in the additional section, use them
+    if (!dnsResponse->additional.empty()) {
+        for (const auto &additional: dnsResponse->additional) {
+            if (additional.type == 28 || additional.type == 1) {
+                config.serverIP = additional.rdata;
+                ssize_t sentBytes = sendDNSQuery(sock, config);
+                if (sentBytes == -1) {
+                    cout << "Failed to send DNS query to " << config.serverIP << endl;
+                    continue;
                 }
-                // You may want to handle type AAAA (IPv6) as well
-            }
-            delete dnsResponse;
-            return nullptr;
-        } else if (!dnsResponse->authority.empty()) {
-            // If there's no IP address, check the authority section for NS records
-            for (const auto &nsRecord: dnsResponse->authority) {
-                if (nsRecord.type == 2) { // NS record
-                    string nsIP = resolveDNSServerName(nsRecord.rdata);
-                    if (nsIP.empty()) {
-                        continue;
-                    }
-                    config.serverIP = nsIP;
-                    ssize_t sentBytes = sendDNSQuery(sock, config);
-                    if (sentBytes == -1) {
-                        continue;
-                    }
-                    vector<uint8_t> nextResponse = receiveDNSResponse(sock, 5);
-                    if (response.empty()) {
-                        continue;
-                    }
-                    // todo: think and decide if this needs to be here
-                    if (finalResponse) {
-                        mergeResponses(finalResponse, dnsResponse);
-                        delete dnsResponse; // as we have merged the responses, we can delete the temporary one
-                        dnsResponse = finalResponse; // point to the merged response
-                    }
-                    // Recursively handle the next response, pass finalResponse to accumulate answers
-                    return handleRecursion(nextResponse, config, sock, dnsResponse);
+                nextResponse = new DNSPacket(analyzeResponse(receiveDNSResponse(sock, 5)));
+                if (checkTargetDNSResponse(*nextResponse, config)) {
+                    break;
                 }
             }
-            delete dnsResponse;
-            return nullptr;
-        } else if (!dnsResponse->answers.empty()) {
-            for (const auto &answer: dnsResponse->answers) {
-                if (answer.type == 5) { // CNAME record
-                    // If a CNAME record is present with no additional or authority information,
-                    // resolve the CNAME target
-                    // This would also involve sending another DNS query for the CNAME target
-                }
+        }
+
+    }
+
+    // If there's no IP address, check the authority section for NS records
+    else if (!dnsResponse->authority.empty()) {
+        for (const auto &nsRecord: dnsResponse->authority) {
+            string ns;
+            if (nsRecord.type == QueryType::SOA) {
+                ns = nsRecord.rdata.substr(nsRecord.rdata.find(' '));
             }
-            delete dnsResponse;
-            return nullptr;
+            if (nsRecord.type == QueryType::NS) {
+                ns = nsRecord.rdata;
+            }
+
+            string nsIP = resolveDNSServerName(ns, config.trace);
+            if (nsIP.empty()) {
+                continue;
+            }
+            config.serverIP = nsIP;
+            ssize_t sentBytes = sendDNSQuery(sock, config);
+            if (sentBytes == -1) {
+                continue;
+            }
+            nextResponse = new DNSPacket(analyzeResponse(receiveDNSResponse(sock, 5)));
+            if (checkTargetDNSResponse(*nextResponse, config)) {
+                break;
+            }
         }
     }
 
-    // If finalResponse is not provided, this is the first call and dnsResponse is the final one
-    if (!finalResponse) {
-        finalResponse = dnsResponse;
-    } else {
-        // Merge this response into the finalResponse
-        mergeResponses(finalResponse, dnsResponse);
-        delete dnsResponse; // Delete the temporary response
+    if (nextResponse != nullptr) {
+        if (config.trace) {
+            printTrace(*nextResponse, config.serverIP, false);
+        }
+        mergeResponses(dnsResponse, nextResponse);
     }
 
-    return finalResponse;
+    return dnsResponse;
 }
 
-void printResponse(const DNSResponse& response) {
+void printResponse(const DNSPacket& response) {
     // Header flags parsing
     bool aa = response.header.flags & (1 << AA_FLAG_POSITION);
     bool rd = response.header.flags & (1 << RD_FLAG_POSITION);
@@ -541,3 +631,20 @@ void printResponse(const DNSResponse& response) {
              << additional.ttl << ", " << additional.rdata << endl;
     }
 }
+
+void printTrace(const DNSPacket& response, const string& serverName, bool result) {
+    int hyphensLength = 59 - serverName.length();
+    int hyphensEachSide = hyphensLength / 2;
+
+    // Build the string with hyphens
+    string hyphens(hyphensEachSide, '-');
+    string endHyphens(75, '-');
+    string clr = (result) ? "\033[32m" : "\033[34m";
+    string text = (result) ? "Result" : "Traced";
+
+    // Output the string with blue color
+    cout << clr << hyphens << text << ", server: " << serverName << hyphens << "\033[0m" << endl;
+    printResponse(response);
+    cout << clr << endHyphens << "\033[0m" << endl;
+}
+

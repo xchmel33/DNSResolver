@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Send the DNS query
-    int sock = createSocket();
+    int sock = createSocket(false);
     ssize_t sentBytes = sendDNSQuery(sock, config);
     if (sentBytes == -1) {
         cerr << "Failed to send DNS query." << endl;
@@ -21,15 +21,16 @@ int main(int argc, char* argv[]) {
     // Receive DNS response
     vector<uint8_t> response = receiveDNSResponse(sock, 5);
     if (response.empty()) {
-        cerr << "Failed to receive a valid DNS response or timed out." << endl;
-        // Handle error or timeout accordingly
+        cerr << "Failed to receive a valid DNS response during the timeout period." << endl;
         return -3;
     }
 
+    // backup server ip
+    string dns_server = config.serverIP;
+
     // Analyze the response and handle recursion if necessary
-    DNSResponse* dnsResponse = handleRecursion(response, config, sock);
+    DNSPacket* dnsResponse = handleRecursion(response, config, sock);
     if (dnsResponse == nullptr) {
-        cerr << "Failed to handle recursion." << endl;
         return -4;
     }
 
@@ -37,7 +38,11 @@ int main(int argc, char* argv[]) {
     close(sock);
 
     // Analyze the received DNS response and print relevant details
-    printResponse(*dnsResponse);
+    if (config.trace) {
+        printTrace(*dnsResponse, dns_server, true);
+    } else {
+        printResponse(*dnsResponse);
+    }
 
     delete dnsResponse;
 

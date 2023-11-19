@@ -15,6 +15,7 @@
 #include <sstream>
 #include <algorithm>
 #include <map>
+#include <optional>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -28,7 +29,12 @@ using namespace std;
 /**
  * \brief
  */
-bool isValidIP(const string &ip);
+bool isValidIPv4(const string &ip);
+
+/**
+ * \brief
+ */
+bool isValidIPv6(const string &ip);
 
 /**
  * \brief Parse program arguments and return configuration.
@@ -53,11 +59,32 @@ string qnameToString(const vector<uint8_t>& qname);
 string classToString(uint16_t qclass);
 
 /**
+ * @brief Converts a qtype to a string.
+ * @param qtype The qtype to be converted.
+ * @return string The converted qtype.
+ */
+string reverseIPv4(const string& ip);
+
+/**
+ * @brief Converts a qtype to a string.
+ * @param qtype The qtype to be converted.
+ * @return string The converted qtype.
+ */
+string reverseIPv6(const string& ip);
+
+/**
  * @brief Converts a qname to a string.
  * @param qname The qname to be converted.
  * @return string The converted qname.
  */
 string reverseIP(const string& ip);
+
+/**
+ * @brief Converts a qtype to a string.
+ * @param qtype The qtype to be converted.
+ * @return string The converted qtype.
+ */
+string formatIPv6(const vector<uint8_t>& response, int offset);
 
 /**
  * @brief Converts a qtype to a string.

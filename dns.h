@@ -17,7 +17,7 @@
 
 /**
  * \struct DNSHeader
- * \brief Structure to represent the DNS header
+ * \brief Structure to represent the DNS header.
  */
 struct DNSHeader {
     uint16_t id;
@@ -30,10 +30,10 @@ struct DNSHeader {
 
 
 /**
- * \struct Question
+ * \struct DNSQuestion
  * \brief Structure to represent the DNS query question section.
  */
-struct Question {
+struct DNSQuestion {
     vector<uint8_t> qname;
     uint16_t qtype;
     uint16_t qclass;
@@ -41,10 +41,10 @@ struct Question {
 
 
 /**
- * \struct DNSAnswer
- * \brief Structure to represent the DNS answer
+ * \struct DNSRecord
+ * \brief Structure to represent the DNS record.
  */
-struct DNSAnswer {
+struct DNSRecord {
     string name;
     uint16_t type;
     uint16_t aclass;
@@ -53,12 +53,13 @@ struct DNSAnswer {
     string rdata;
 };
 
-struct DNSResponse {
+
+struct DNSPacket {
     DNSHeader header;
-    vector<Question> questions;
-    vector<DNSAnswer> answers;
-    vector<DNSAnswer> authority;
-    vector<DNSAnswer> additional;
+    vector<DNSQuestion> questions;
+    vector<DNSRecord> answers;
+    vector<DNSRecord> authority;
+    vector<DNSRecord> additional;
 };
 
 /**
@@ -72,7 +73,7 @@ vector<uint8_t> createQuery(const Config& config);
  * @brief Creates a UDP socket for DNS communication.
  * @return socket The created socket.
  */
-int createSocket();
+int createSocket(bool ipv6=false);
 
 /**
  * @brief Gets the default name servers from the /etc/resolv.conf file.
@@ -82,14 +83,16 @@ vector<string> getDefaultNameServers();
 
 /**
  * @brief Gets the default domain from the /etc/resolv.conf file.
+ * @param serverName The name of the server.
+ * @param trace - trace mode - print results of this query.
  * @return string The default domain.
  */
-string resolveDNSServerName(const string& serverName);
+string resolveDNSServerName(const string& serverName, bool trace=false);
 
 /**
  * @brief Sends the DNS query to the server using the socket.
  * @param config The DNS config instance.
- * @return ssize_t The number of bytes sent.
+ * @return size_t The number of bytes sent.
  */
 ssize_t sendDNSQuery(int sock, const Config& config);
 
@@ -113,43 +116,59 @@ string extractName(const vector<uint8_t>& packet, unsigned int& offset);
  * @brief Parses the DNS question section from the provided DNS response.
  * @param response The full DNS response as a byte vector.
  * @param offset The offset in the packet where the name starts.
- * @return a pointer to the Question structure
+ * @return a pointer to the DNSQuestion structure
  */
-Question parseQuestionSection(const vector<uint8_t>& response, unsigned int& offset);
+DNSQuestion parseDNSQuestionSection(const vector<uint8_t>& response, unsigned int& offset);
 
 /**
  * @brief Parses the DNS answer from the provided DNS response.
  * @param response
  * @param offset
- * @return a pointer to the DNSAnswer structure
+ * @return a pointer to the DNSRecord structure
  */
-DNSAnswer* parseDNSAnswer(const vector<uint8_t>& response, unsigned int& offset);
+DNSRecord* parseDNSAnswer(const vector<uint8_t>& response, unsigned int& offset);
 
 
 /**
  * \brief Analyze a DNS response and return the response structure.
  * \param response Vector containing the bytes of the DNS response.
  */
-DNSResponse analyzeResponse(const vector<uint8_t>& response);
+DNSPacket analyzeResponse(const vector<uint8_t>& response);
 
 /**
  * @brief Merges the new response with the final response.
  * @param finalResponse The final response.
  * @param newResponse The new response.
  */
-void mergeResponses(DNSResponse* finalResponse, const DNSResponse* newResponse);
+void mergeResponses(DNSPacket* finalResponse, const DNSPacket* newResponse);
+
+/**
+ * @brief Checks if the target is in the DNS response.
+ * @param dnsResponse The DNS response instance to be checked.
+ * @param finalResponse The final response instance.
+ * @param config The DNS config instance.
+ */
+bool checkTargetDNSResponse(const DNSPacket& response, const Config& config);
 
 /**
  * @brief Handles the recursion on the client side.
  * @param dnsResponse The DNS response instance to be handled.
  * @param config The DNS config instance.
  */
-DNSResponse* handleRecursion(const vector<uint8_t>& response, Config& config, int sock, DNSResponse* finalResponse = nullptr);
+DNSPacket* handleRecursion(const vector<uint8_t>& response, Config& config, int sock);
 
 /**
  * @brief Prints the DNS response to the standard output.
  * @param response The DNS response instance to be printed.
  */
-void printResponse(const DNSResponse& response);
+void printResponse(const DNSPacket& response);
+
+/**
+ * @brief Prints the DNS response in trace mode to the standard output.
+ * @param response The DNS response instance to be printed.
+ * @param serverName The domain name of the server that was queried
+ * @param result - if query is the final result
+ */
+void printTrace(const DNSPacket& response, const string& serverName, bool result=false);
 
 #endif // DNSRESOLVER_DNS_H

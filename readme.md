@@ -1,6 +1,6 @@
 # 📎DNS Resolver
 
-This tool sends DNS queries to specified servers and analyzes the response.
+Custom implementation of DNS Resolver in C++ for ISA (Network Applications and Network Administration) course at FIT VUT Brno.
 ### 🐈‍⬛ Version control:
 https://github.com/xchmel33/DNSResolver
 
@@ -11,24 +11,15 @@ Lukas Chmelo
 ## 🚀 Usage
 
 ####
-### 🛠 Building
-To build everything:
+### 🛠 Build
+To build DNS Resolver:
 ```bash
 make all
-```
-To build the main program:
-```bash
-make
-```
-To build tests:
-```bash
-make tests
 ```
 To clean up generated binaries:
 ```bash
 make clean
 ```
-
 ####
 ### ▶️ Execution
 Run main program:
@@ -41,8 +32,7 @@ Run main program:
 `-s`: **(Required)** Specify the IP address or domain name of the server to send the query to. <br>
 `-p`: **(Optional)** Specify the port number to send the query to (default is 53). <br>
 `address`: **(Required)** The address you are querying. <br><br>
-
 Run tests:
 ```bash
-./tests
+make test
 ```

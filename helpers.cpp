@@ -4,7 +4,7 @@
 
 #include "helpers.h"
 
-bool isValidIP(const string &ip) {
+bool isValidIPv4(const string &ip) {
     stringstream ss(ip);
     string segment;
     int count = 0;
@@ -17,10 +17,10 @@ bool isValidIP(const string &ip) {
                 (segment.size() > 1 && segment[0] == '0')) {
                 return false;
             }
-        } catch (const std::invalid_argument& ia) {
+        } catch (const invalid_argument& ia) {
             // Catch invalid argument exception (e.g., non-numeric string)
             return false;
-        } catch (const std::out_of_range& oor) {
+        } catch (const out_of_range& oor) {
             // Catch out of range exception (e.g., number too large)
             return false;
         } catch (...) {
@@ -30,6 +30,39 @@ bool isValidIP(const string &ip) {
     }
 
     return count == 4;
+}
+
+bool isValidIPv6(const string &ip) {
+    stringstream ss(ip);
+    string segment;
+    int count = 0;
+    bool doubleColon = false;
+
+    while (getline(ss, segment, ':')) {
+        if (segment.empty()) {
+            if (doubleColon) { // More than one '::'
+                return false;
+            }
+            doubleColon = true;
+            continue;
+        }
+        count++;
+        if (count > 8) {
+            return false;
+        }
+        try {
+            unsigned long segmentValue = stoul(segment, nullptr, 16);
+            if (segmentValue > 0xFFFF) {
+                return false;
+            }
+        } catch (const invalid_argument&) {
+            return false;
+        } catch (const out_of_range&) {
+            return false;
+        }
+    }
+
+    return doubleColon ? count <= 8 : count == 8;
 }
 
 string typeToString(uint16_t type) {
@@ -76,35 +109,126 @@ string classToString(uint16_t qclass) {
     }
 }
 
-string reverseIP(const string& ip) {
-    // Check if IP is not already reversed
-    if (ip.find(".in-addr.arpa") != string::npos) {
-        return ip;
-    }
-
+string reverseIPv4(const string& ip) {
     vector<string> octets;
     stringstream ss(ip);
     string octet;
 
-    // Split the IP by dots
     while (getline(ss, octet, '.')) {
         octets.push_back(octet);
     }
 
-    // If no octets were found, return an error message
-    if (octets.empty()) {
-        cerr << "No octets found in IP address: " << ip << endl;
-        return "";
-    }
-
-    // Reverse the octets
     reverse(octets.begin(), octets.end());
-
-    // Join the reversed octets with dots and append the special domain for reverse DNS lookups
-    string reversedIP = join(octets, '.') + ".in-addr.arpa";
-    return reversedIP;
+    return join(octets, '.') + ".in-addr.arpa";
 }
 
+string reverseIPv6(const string& ip) {
+    string reversedIP;
+    vector<string> blocks;
+    istringstream iss(ip);
+    string block;
+
+    // Split the IPv6 address into blocks
+    while (getline(iss, block, ':')) {
+        blocks.push_back(block);
+    }
+
+    // Pad the blocks to ensure each is 4 digits
+    auto it = find(blocks.begin(), blocks.end(), "");
+    if (it != blocks.end()) {
+        auto dist = distance(blocks.begin(), it);
+        blocks.erase(it);
+        while (blocks.size() < 8) {
+            blocks.insert(blocks.begin() + dist, "0000");
+        }
+    }
+
+    // Ensure each block is 4 characters long, padding with zeros if necessary
+    for (auto& blk : blocks) {
+        while (blk.length() < 4) {
+            blk = "0" + blk;
+        }
+    }
+
+    // Reverse each hex digit and separate by dots
+    for (auto rit = blocks.rbegin(); rit != blocks.rend(); ++rit) {
+        for (auto ch = rit->rbegin(); ch != rit->rend(); ++ch) {
+            reversedIP += *ch;
+            reversedIP += '.';
+        }
+    }
+
+    return reversedIP + "ip6.arpa";
+}
+
+string reverseIP(const string& ip) {
+    if (ip.find(".in-addr.arpa") != string::npos || ip.find(".ip6.arpa") != string::npos) {
+        return ip;
+    }
+
+    if (isValidIPv4(ip)) {
+        return reverseIPv4(ip);
+    } else if (isValidIPv6(ip)) {
+        return reverseIPv6(ip);
+    } else {
+        cerr << "Invalid IP address format: " << ip << endl;
+        return "";
+    }
+}
+
+string formatIPv6(const vector<uint8_t>& response, int offset) {
+    vector<string> blocks;
+    stringstream ipv6;
+
+    for (int i = 0; i < 16; i += 2) {
+        unsigned int block = (response[offset + i] << 8) + response[offset + i + 1];
+        stringstream hexBlock;
+        hexBlock << hex << block;
+        blocks.push_back(hexBlock.str());
+    }
+
+    // Find the longest sequence of zero blocks
+    int longestZeroSequenceLength = 0;
+    int longestZeroSequenceStart = -1;
+    int currentZeroSequenceLength = 0;
+    int currentZeroSequenceStart = -1;
+
+    for (size_t i = 0; i < blocks.size(); ++i) {
+        if (blocks[i] == "0") {
+            if (currentZeroSequenceLength == 0) {
+                currentZeroSequenceStart = int(i);
+            }
+            currentZeroSequenceLength++;
+        } else {
+            if (currentZeroSequenceLength > longestZeroSequenceLength) {
+                longestZeroSequenceLength = currentZeroSequenceLength;
+                longestZeroSequenceStart = currentZeroSequenceStart;
+            }
+            currentZeroSequenceLength = 0;
+        }
+    }
+
+    // Check if the last sequence is the longest
+    if (currentZeroSequenceLength > longestZeroSequenceLength) {
+        longestZeroSequenceLength = currentZeroSequenceLength;
+        longestZeroSequenceStart = currentZeroSequenceStart;
+    }
+
+    // Construct the shortened IPv6 address
+    for (size_t i = 0; i < blocks.size(); ++i) {
+        if (int(i) == longestZeroSequenceStart) {
+            ipv6 << "::";
+            i += longestZeroSequenceLength - 1; // Skip the zero blocks
+        } else {
+            ipv6 << blocks[i];
+            if (i < blocks.size() - 1 && int(i) != longestZeroSequenceStart - 1) {
+                ipv6 << ":";
+            }
+        }
+    }
+
+    return ipv6.str();
+}
 
 string join(const vector<string>& vec, char delim) {
     stringstream ss;
