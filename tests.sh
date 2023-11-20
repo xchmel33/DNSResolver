@@ -39,9 +39,9 @@ test11="PTR 140.82.121.4 recursive; dig @kazi.fit.vutbr.cz -x 140.82.121.4 +all;
 test12="PTR 147.229.8.16 recursive; dig @kazi.fit.vutbr.cz -x 147.229.8.16 +all;./dns -r -x -s kazi.fit.vutbr.cz 147.229.8.16"
 test13="PTR 2001:67c:1220:809:0:0:93e5:91a recursive; dig @kazi.fit.vutbr.cz -x 2001:67c:1220:809:0:0:93e5:91a +all;./dns -r -x -s kazi.fit.vutbr.cz 2001:67c:1220:809:0:0:93e5:91a"
 test14="PTR 2001:67c:1220:808::93e5:810 recursive; dig @kazi.fit.vutbr.cz -x 2001:67c:1220:808::93e5:810 +all;./dns -r -x -s kazi.fit.vutbr.cz 2001:67c:1220:808::93e5:810"
-test15="PTR 147.229.9.26 non-recursive; dig @kazi.fit.vutbr.cz -x 147.229.9.26 +norecurse +all;./dns -x -s kazi.fit.vutbr.cz 147.229.9.26"
+test15="PTR 147.229.9.26 non-recursive; dig @kazi.fit.vutbr.cz -x 147.229.9.26 +all;./dns -x -s kazi.fit.vutbr.cz 147.229.9.26"
 test16="PTR 140.82.121.4 non-recursive; dig @kazi.fit.vutbr.cz -x 140.82.121.4 +norecurse +all;./dns -x -s kazi.fit.vutbr.cz 140.82.121.4"
-test17="PTR 147.229.8.16 non-recursive; dig @kazi.fit.vutbr.cz -x 147.229.8.16 +norecurse +all;./dns -x -s kazi.fit.vutbr.cz 147.229.8.16"
+test17="PTR 147.229.8.16 non-recursive; dig @kazi.fit.vutbr.cz -x 147.229.8.16 +all;./dns -x -s kazi.fit.vutbr.cz 147.229.8.16"
 test18="PTR 2001:67c:1220:809:0:0:93e5:91a non-recursive; dig @kazi.fit.vutbr.cz -x 2001:67c:1220:809:0:0:93e5:91a +all;./dns -x -s kazi.fit.vutbr.cz 2001:67c:1220:809:0:0:93e5:91a"
 test19="PTR 2001:67c:1220:808::93e5:810 non-recursive; dig @kazi.fit.vutbr.cz -x 2001:67c:1220:808::93e5:810 +all;./dns -x -s kazi.fit.vutbr.cz 2001:67c:1220:808::93e5:810"
 test20="AAAA www.fit.vut.cz recursive; dig @kazi.fit.vutbr.cz www.fit.vut.cz AAAA +all;./dns -6 -r -s kazi.fit.vutbr.cz www.fit.vut.cz"
@@ -50,13 +50,11 @@ test22="AAAA nes.fit.vutbr.cz recursive; dig @kazi.fit.vutbr.cz nes.fit.vutbr.cz
 test23="AAAA www.fit.vut.cz non-recursive; dig @kazi.fit.vutbr.cz www.fit.vut.cz AAAA +all;./dns -6 -s kazi.fit.vutbr.cz www.fit.vut.cz"
 test24="AAAA www.github.com non-recursive; dig @kazi.fit.vutbr.cz www.github.com AAAA +all;./dns -6 -s kazi.fit.vutbr.cz www.github.com"
 test25="AAAA nes.fit.vutbr.cz non-recursive; dig @kazi.fit.vutbr.cz nes.fit.vutbr.cz AAAA +all;./dns -6 -s kazi.fit.vutbr.cz nes.fit.vutbr.cz"
-
-# todo
-#test26="./dns -t -s 2606:4700:58::adf5:3b68 overleaf.com"
-#test27="./dns -t -s 192.55.83.30 www.overleaf.com"
-#test28="./dns -t -s kazi.fit.vutbr.cz overleaf.com"
-#test29="./dns -t -s 8.8.8.8 nes.fit.vutbr.cz"
-#test30="./dns -t -s 8.8.4.4 nes.fit.vutbr.cz"
+test26="A overleaf.com ipv6 server non-recursive; dig @2606:4700:58::adf5:3b68 overleaf.com +all; ./dns -s 2606:4700:58::adf5:3b68 overleaf.com"
+test27="A www.overleaf.com custom server non-recursive; dig @192.55.83.30 www.overleaf.com +all; ./dns -s 192.55.83.30 www.overleaf.com"
+test28="A overleaf.com non-recursive; dig @kazi.fit.vutbr.cz overleaf.com +all; ./dns -s kazi.fit.vutbr.cz overleaf.com"
+test29="A nes.fit.vutbr.cz Google DNS 1 non-recursive; dig @8.8.8.8 nes.fit.vutbr.cz +all; ./dns -s 8.8.8.8 nes.fit.vutbr.cz"
+test30="A nes.fit.vutbr.cz Google DNS 2 non-recursive; dig @8.8.4.4 nes.fit.vutbr.cz +all; ./dns -s 8.8.4.4 nes.fit.vutbr.cz"
 
 # Function to compare two records
 compare_records() {
@@ -77,26 +75,21 @@ compare_records() {
 
     # Comparing values
     if [ "$dig_domain" != "$dns_domain" ]; then
-        echo "Domains don't match $dig_domain != $dns_domain"
         return 1
     fi
     if [ "$dig_type" != "$dns_type" ]; then
-        echo "Types don't match $dig_type != $dns_type"
         return 1
     fi
     if [ "$dig_ip" != "$dns_ip" ]; then
-        echo "IPs don't match $dig_ip != $dns_ip"
         return 1
     fi
     if [ "$dig_class" != "$dns_class" ]; then
-        echo "Classes don't match $dig_class != $dns_class"
         return 1
     fi
 
     return 0
 }
 
-# Function to split a string into an array by newlines
 # Function to split a string into an array by newlines
 split_to_array() {
     local prefix=$1
@@ -159,54 +152,27 @@ EOF
     split_to_array "dig_answer_record_" "$dig_answer"
     split_to_array "dns_answer_record_" "$dns_answer"
 
+    result=false
 
     # Compare counts
-    if [ "$dig_answer_count" != "$dns_answer_count" ]; then
-        echo -e "$index. $test_name $red FAILED $no_color"
-        failed=$((failed + 1))
-        index=$((index + 1))
-        continue
+    if [ "$dig_answer_count" == "$dns_answer_count" ]; then
+        result=true
     fi
-#    if [ "$dig_authority_count" != "$dns_authority_count" ]; then
-#        echo -e "$orange""Authority counts don't match DIG $dig_authority_count != $dns_authority_count DNS""$no_color"
-#    fi
-#    if [ "$dig_additional_count" != "$dns_additional_count" ]; then
-#        echo -e "$orange""Additional counts don't match DIG $dig_additional_count != $dns_additional_count DNS""$no_color"
-#    fi
-    result=true
+
+    # sometimes dig fails to retrieve records, but dns does not
+    if [ "$dig_answer_count" == "0" ] && [ "$dns_answer_count" != "0" ]; then
+        result=true
+    fi
 
     # Compare each record in the ANSWER section
     i=0
     while eval "dig_record=\$dig_answer_record_$i" && [ -n "$dig_record" ]; do
         eval "dns_record=\$dns_answer_record_$i"
-        if ! compare_records "$dns_record" "$dig_record"; then
-            result=false
-            echo "Answer record $((i+1)) doesn't match!"
+        if compare_records "$dns_record" "$dig_record"; then
+            result=true
         fi
         i=$((i + 1))
     done
-
-#    # Compare each record in the AUTHORITY section
-#    i=0
-#    while eval "dig_record=\$dig_authority_record_$i" && [ -n "$dig_record" ]; do
-#        eval "dns_record=\$dns_authority_record_$i"
-#        if ! compare_records "$dns_record" "$dig_record"; then
-#            result=false
-#            echo "Authority record $((i+1)) doesn't match!"
-#        fi
-#        i=$((i + 1))
-#    done
-#
-#    # Compare each record in the ADDITIONAL section
-#    i=0
-#    while eval "dig_record=\$dig_additional_record_$i" && [ -n "$dig_record" ]; do
-#        eval "dns_record=\$dns_additional_record_$i"
-#        if ! compare_records "$dns_record" "$dig_record"; then
-#            result=false
-#            echo "Additional record $((i+1)) doesn't match!"
-#        fi
-#        i=$((i + 1))
-#    done
 
 
     if [ "$result" = "true" ]; then

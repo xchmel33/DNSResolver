@@ -250,7 +250,7 @@ DNSQuestion parseDNSQuestionSection(const vector<uint8_t>& response, unsigned in
     return question;
 }
 
-DNSRecord* parseDNSAnswer(const vector<uint8_t>& response, unsigned int& offset) {
+DNSRecord* parseDNSRecord(const vector<uint8_t>& response, unsigned int& offset) {
     auto* answer = new DNSRecord;
 
     answer->name = extractName(response, offset);
@@ -440,21 +440,21 @@ DNSPacket analyzeResponse(const vector<uint8_t>& response) {
 
     // Parse the answer section
     for (int i = 0; i < dnsResponse.header.an_count; ++i) {
-        DNSRecord* answer = parseDNSAnswer(response, offset);
+        DNSRecord* answer = parseDNSRecord(response, offset);
         dnsResponse.answers.push_back(*answer);
         delete answer; // Don't forget to free the allocated memory!
     }
 
     // Parse the authority section
     for (int i = 0; i < dnsResponse.header.ns_count; ++i) {
-        DNSRecord* authority = parseDNSAnswer(response, offset);
+        DNSRecord* authority = parseDNSRecord(response, offset);
         dnsResponse.authority.push_back(*authority);
         delete authority; // Free the allocated memory
     }
 
     // Parse the additional section
     for (int i = 0; i < dnsResponse.header.ar_count; ++i) {
-        DNSRecord* additional = parseDNSAnswer(response, offset);
+        DNSRecord* additional = parseDNSRecord(response, offset);
         dnsResponse.additional.push_back(*additional);
         delete additional; // Free the allocated memory
     }

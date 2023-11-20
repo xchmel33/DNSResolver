@@ -71,6 +71,7 @@ vector<uint8_t> createQuery(const Config& config);
 
 /**
  * @brief Creates a UDP socket for DNS communication.
+ * @param ipv6 Whether the socket should be IPv6.
  * @return socket The created socket.
  */
 int createSocket(bool ipv6=false);
@@ -84,13 +85,14 @@ vector<string> getDefaultNameServers();
 /**
  * @brief Gets the default domain from the /etc/resolv.conf file.
  * @param serverName The name of the server.
- * @param trace - trace mode - print results of this query.
+ * @param trace whenever to print results of this query.
  * @return string The default domain.
  */
 string resolveDNSServerName(const string& serverName, bool trace=false);
 
 /**
- * @brief Sends the DNS query to the server using the socket.
+ * @brief Sends the DNS query to the server using the socket, handles creation of the socket & IPv4/6/domains.
+ * @param sock The socket to be used for communication.
  * @param config The DNS config instance.
  * @return size_t The number of bytes sent.
  */
@@ -122,16 +124,16 @@ DNSQuestion parseDNSQuestionSection(const vector<uint8_t>& response, unsigned in
 
 /**
  * @brief Parses the DNS answer from the provided DNS response.
- * @param response
- * @param offset
+ * @param response The full DNS response as a byte vector.
+ * @param offset The offset in the packet where the RR starts.
  * @return a pointer to the DNSRecord structure
  */
-DNSRecord* parseDNSAnswer(const vector<uint8_t>& response, unsigned int& offset);
-
+DNSRecord* parseDNSRecord(const vector<uint8_t>& response, unsigned int& offset);
 
 /**
  * \brief Analyze a DNS response and return the response structure.
  * \param response Vector containing the bytes of the DNS response.
+ * \return DNSPacket The DNS response structure.
  */
 DNSPacket analyzeResponse(const vector<uint8_t>& response);
 
@@ -147,6 +149,7 @@ void mergeResponses(DNSPacket* finalResponse, const DNSPacket* newResponse);
  * @param dnsResponse The DNS response instance to be checked.
  * @param finalResponse The final response instance.
  * @param config The DNS config instance.
+ * @return bool Whether the target is in the DNS response.
  */
 bool checkTargetDNSResponse(const DNSPacket& response, const Config& config);
 
@@ -154,6 +157,8 @@ bool checkTargetDNSResponse(const DNSPacket& response, const Config& config);
  * @brief Handles the recursion on the client side.
  * @param dnsResponse The DNS response instance to be handled.
  * @param config The DNS config instance.
+ * @param sock The socket to be used for communication.
+ * @return DNSPacket The final DNS response.
  */
 DNSPacket* handleRecursion(const vector<uint8_t>& response, Config& config, int sock);
 
