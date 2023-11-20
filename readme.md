@@ -36,3 +36,21 @@ Run tests:
 ```bash
 make test
 ```
+
+### 💡Examples
+Recursive Query A
+```bash
+./dns -r -s kazi.fit.vutbr.cz www.github.com
+```
+Recursive Query AAAA
+```bash
+./dns -6 -r -s kazi.fit.vutbr.cz www.fit.vut.cz
+```
+Non-Recursive A
+```bash
+./dns -t -s kazi.fit.vutbr.cz overleaf.com
+```
+Non-Recursive Query PTR
+```bash
+./dns -x -s 8.8.8.8 2001:67c:1220:809:0:0:93e5:91a
+```
